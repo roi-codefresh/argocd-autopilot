@@ -23,7 +23,7 @@ import (
 	"sigs.k8s.io/kustomize/kyaml/filesys"
 )
 
-//go:generate mockery --name Application --filename application.go
+//go:generate mockgen -destination=./mocks/application.go -package=mocks -source=./application.go Application
 
 const (
 	InstallationModeFlat   = "flat"
@@ -114,6 +114,9 @@ func AddFlags(cmd *cobra.Command) *CreateOptions {
 	cmd.Flags().StringVar(&opts.DestNamespace, "dest-namespace", "", "K8s target namespace (overrides the namespace specified in the kustomization.yaml)")
 	cmd.Flags().StringVar(&opts.InstallationMode, "installation-mode", InstallationModeNormal, "One of: normal|flat. "+
 		"If flat, will commit the application manifests (after running kustomize build), otherwise will commit the kustomization.yaml")
+	cmd.Flags().StringToStringVar(&opts.Labels, "labels", nil, "Optional labels that will be set on the Application resource. (e.g. \"{{ placeholder }}=my-org\"")
+	cmd.Flags().StringVar(&opts.Include, "include", "", "Optional glob for files to include")
+	cmd.Flags().StringVar(&opts.Exclude, "exclude", "", "Optional glob for files to exclude")
 
 	return opts
 }
@@ -280,7 +283,7 @@ func newKustApp(o *CreateOptions, projectName, repoURL, targetRevision, repoRoot
 
 	if o.DestNamespace != "" && o.DestNamespace != "default" {
 		app.overlay.Namespace = o.DestNamespace
-		app.namespace = kube.GenerateNamespace(o.DestNamespace)
+		app.namespace = kube.GenerateNamespace(o.DestNamespace, nil)
 	}
 
 	app.config = &Config{
@@ -445,7 +448,7 @@ func (app *dirApp) CreateFiles(repofs fs.FS, appsfs fs.FS, projectName string) e
 	}
 
 	if app.opts.DestNamespace != "" && app.opts.DestNamespace != "default" {
-		if err = createNamespaceManifest(repofs, clusterName, kube.GenerateNamespace(app.opts.DestNamespace)); err != nil {
+		if err = createNamespaceManifest(repofs, clusterName, kube.GenerateNamespace(app.opts.DestNamespace, nil)); err != nil {
 			return err
 		}
 	}
@@ -506,27 +509,27 @@ func fixResourcesPaths(k *kusttypes.Kustomization, newKustDir string) error {
 var generateManifests = func(k *kusttypes.Kustomization) ([]byte, error) {
 	td, err := ioutil.TempDir(".", "auto-pilot")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed creating temp dir: %w", err)
 	}
 	defer os.RemoveAll(td)
 
 	absTd, err := filepath.Abs(td)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed getting abs path for \"%s\": %w", td, err)
 	}
 
 	if err = fixResourcesPaths(k, absTd); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed fixing resources paths: %w", err)
 	}
 
 	kyaml, err := yaml.Marshal(k)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed marshaling yaml: %w", err)
 	}
 
 	kustomizationPath := filepath.Join(td, "kustomization.yaml")
 	if err = ioutil.WriteFile(kustomizationPath, kyaml, 0400); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed writing file to \"%s\": %w", kustomizationPath, err)
 	}
 
 	log.G().WithFields(log.Fields{
@@ -540,7 +543,7 @@ var generateManifests = func(k *kusttypes.Kustomization) ([]byte, error) {
 	fs := filesys.MakeFsOnDisk()
 	res, err := kust.Run(fs, td)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed running kustomization: %w", err)
 	}
 
 	return res.AsYaml()

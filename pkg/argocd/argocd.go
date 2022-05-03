@@ -34,6 +34,7 @@ type (
 		Username   string
 		Password   string
 		KubeConfig string
+		KubeContext string
 		Insecure   bool
 	}
 )
@@ -111,6 +112,7 @@ func Login(opts *LoginOptions) error {
 		"--name",
 		"autopilot",
 	}
+
 	if opts.KubeConfig != "" {
 		origKubeConfig := os.Getenv("KUBECONFIG")
 		defer func() { os.Setenv("KUBECONFIG", origKubeConfig) }()
@@ -122,6 +124,7 @@ func Login(opts *LoginOptions) error {
 	if opts.Insecure {
 		args = append(args, "--plaintext")
 	}
+
 
 	root.SetArgs(args)
 	return root.Execute()
