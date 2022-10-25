@@ -1,4 +1,4 @@
-#trigger builde12345
+#trigger builde1234
 VERSION=v0.3.7
 OUT_DIR=dist
 
